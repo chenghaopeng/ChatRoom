@@ -26,11 +26,23 @@ getTime (char *t)
   sprintf (t, "%02d:%02d:%02d", p->tm_hour, p->tm_min, p->tm_sec);
 }
 
+int
+charToInt (char *s)
+{
+  int a = 0, i = 0;
+  while (s[i] >= '0' && s[i] <= '9')
+    {
+      a = a * 10 + s[i] - '0';
+      i++;
+    }
+  return a;
+}
+
 #define SERV_PORT 45000
 
 #define SIZE 1000
 
-const int LOGIN = 1, EXIT = 2, GET = 3, SEND = 4, NOTHING = 5;
+const int LOGIN = 1, EXIT = 2, GET = 3, SEND = 4, NOTHING = 5, ERROR = 6;
 
 int
 prefixEquals (char *a, char *b)
@@ -59,6 +71,8 @@ getOperation (char *opera)
     return GET;
   if (prefixEquals (opera, ":nothing"))
     return NOTHING;
+  if (prefixEquals (opera, ":error"))
+    return ERROR;
   return SEND;
 }
 
@@ -77,6 +91,8 @@ preWork ()
 {
   system ("mkdir ./tmp");
   system ("rm ./tmp/*");
+  system ("mkdir ./tmpun");
+  system ("rm ./tmpun/*");
 }
 
 void
@@ -85,6 +101,34 @@ printAction (char *s)
   char t[9];
   getTime (t);
   printf ("%s %s %s\n", t, user.info, s);
+}
+
+int
+checkMax ()
+{
+  char buf[SIZE];
+  FILE *stream = popen ("ls -l ./tmpun/ | grep \"^-\" | wc -l", "r");
+  fread (buf, sizeof (char), sizeof (buf), stream);
+  pclose (stream);
+  if (charToInt (buf) >= 100)
+    return 1;
+  return 0;
+}
+
+int
+checkUserName (char *s)
+{
+  char buf[SIZE], cmd[SIZE];
+  sprintf (cmd, "ls ./tmpun/%s", s);
+  FILE *stream = popen (cmd, "r");
+  fread (buf, sizeof (char), sizeof (buf), stream);
+  pclose (stream);
+  sprintf (cmd, "./tmpun/%s", s);
+  if (prefixEquals (buf, cmd))
+    return 1;
+  sprintf (cmd, "touch ./tmpun/%s", s);
+  system (cmd);
+  return 0;
 }
 
 void
@@ -118,6 +162,20 @@ sendMessage (char *s)
 }
 
 void
+recordLog (char *s)
+{
+  char t[9];
+  getTime (t);
+  char cmd[SIZE];
+  sprintf (cmd, "echo \"%s %s %s\" >> ./tmp/%lld", t, user.userName, s,
+	   getCurrentTime ());
+#ifdef DEBUG
+  printf ("%s\n", cmd);
+#endif
+  system (cmd);
+}
+
+void
 getMessage (int connfd)
 {
   char buf[SIZE * 10];
@@ -138,6 +196,22 @@ getMessage (int connfd)
   else
     write (connfd, buf, strlen (buf) + 1);
   user.recTime = getCurrentTime ();
+}
+
+void
+logOut (char *s)
+{
+  char cmd[SIZE];
+  sprintf (cmd, "rm ./tmpun/%s", s);
+  system (cmd);
+}
+
+void
+sendError (int connfd, char *s)
+{
+  char buf[SIZE];
+  sprintf (buf, ":error %s", s);
+  write (connfd, buf, strlen (buf) + 1);
 }
 
 int
@@ -182,26 +256,35 @@ main (void)
 	      n = read (connfd, buf, SIZE);
 	      if (n == 0)
 		{
+		  logOut (user.userName);
+		  recordLog ("Log out");
 		  printAction ("Exit");
 		  break;
 		}
-	      /*printf("PID %d received from %s at PORT %d\n", getpid(),
-	         inet_ntop(AF_INET, &cliaddr.sin_addr, str, sizeof(str)),
-	         ntohs(cliaddr.sin_port));
-
-	         for (i = 0; i < n; i++)
-	         buf[i] = toupper(buf[i]);
-	         write(connfd, buf, n); */
 	      int op = getOperation (buf);
 	      if (op == LOGIN)
 		{
 		  user.loginTime = user.recTime = getCurrentTime ();
 		  getUserName (user.userName, buf);
-		  sprintf (user.info, "PID %d IP %s PORT %d USERNAME %s",
-			   getpid (), inet_ntop (AF_INET, &cliaddr.sin_addr,
-						 str, sizeof (str)),
-			   ntohs (cliaddr.sin_port), user.userName);
-		  printAction ("Log in");
+		  if (checkMax () == 1)
+		    {
+		      sendError (connfd, "The chatroom is full.");
+		    }
+		  else if (checkUserName (user.userName) == 1)
+		    {
+		      sendError (connfd, "There is same username.");
+		    }
+		  else
+		    {
+		      write (connfd, ":nothing", 9);
+		      sprintf (user.info, "PID %d IP %s PORT %d USERNAME %s",
+			       getpid (), inet_ntop (AF_INET,
+						     &cliaddr.sin_addr, str,
+						     sizeof (str)),
+			       ntohs (cliaddr.sin_port), user.userName);
+		      printAction ("Log in");
+		      recordLog ("Log in");
+		    }
 		}
 	      if (op == SEND)
 		{

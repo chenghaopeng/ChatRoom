@@ -13,7 +13,7 @@
 
 #define SIZE 1000
 
-const int LOGIN = 1, EXIT = 2, GET = 3, SEND = 4, NOTHING = 5;
+const int LOGIN = 1, EXIT = 2, GET = 3, SEND = 4, NOTHING = 5, ERROR = 6;
 
 int sockfd;
 int logined = 0;
@@ -48,6 +48,8 @@ getOperation (char *opera)
     return GET;
   if (prefixEquals (opera, ":nothing"))
     return NOTHING;
+  if (prefixEquals (opera, ":error"))
+    return ERROR;
   return SEND;
 }
 
@@ -60,23 +62,19 @@ login (char *op)
       return;
     }
   write (sockfd, op, SIZE);
-  /*int n = read(sockfd, rec, SIZE);
-     rec[n] = '\0';
-     fputs(rec, stdout); */
-  logined = 1;
-}
-
-/*int
-charToInt (char *s)
-{
-  int i = 0, a = 0;
-  while (s[i] != '\0')
+  char rec[SIZE];
+  int n = read (sockfd, rec, SIZE);
+  rec[n] = '\0';
+  if (prefixEquals (rec, ":nothing"))
     {
-      a = a * 10 + s[i] - '0';
-      i++;
+      logined = 1;
+      printf ("Log in successfully.\n");
     }
-  return a;
-}*/
+  else
+    {
+      printf ("Fail to log in. %s\n", rec);
+    }
+}
 
 void
 getMessage ()
@@ -87,14 +85,6 @@ getMessage ()
       return;
     }
   write (sockfd, ":get", SIZE);
-  /*int n = read (sockfd, rec, SIZE), m;
-     rec[n] = '\0';
-     n = charToInt (rec);
-     while (n--) {
-     m = read (sockfd, rec, SIZE);
-     rec[m] = '\0';
-     fputs (rec, stdout);
-     } */
   char rec[SIZE * 10];
   int n = read (sockfd, rec, SIZE * 10);
   rec[n] = '\0';
@@ -122,9 +112,6 @@ sendMessage (char *op)
 void
 readIn (char *s)
 {
-  // int i = 0;
-  // while ((s[i] = getchar()) != '\n') i++;
-  // s[i] = '\0'; 
   memset (s, 0, sizeof (s));
   scanf ("%[^\n]", s);
   getchar ();
@@ -158,10 +145,6 @@ Main ()
 	{
 	  getMessage ();
 	}
-      /*write (sockfd, mess, 16);
-         n = read (sockfd, rec, 1000);
-         rec[n] = '\0';
-         fputs (rec, stdout); */
     }
 }
 
@@ -176,7 +159,7 @@ main ()
 
   serv.sin_family = PF_INET;
   serv.sin_port = htons (SERV_PORT);
-  serv.sin_addr.s_addr = inet_addr ("144.34.132.147");
+  serv.sin_addr.s_addr = inet_addr ("127.0.0.1");
 
   connect (sockfd, (struct sockaddr *) &serv, sizeof (struct sockaddr));
 
